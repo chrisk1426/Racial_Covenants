@@ -1,0 +1,27 @@
+# Core pipeline
+anthropic>=0.40.0          # Claude API client
+pdf2image>=1.17.0          # PDF → page images
+Pillow>=10.0.0             # Image preprocessing (deskew, binarize, denoise)
+pytesseract>=0.3.10        # Tesseract OCR wrapper
+rapidfuzz>=3.0.0           # Fuzzy string matching (OCR-error-tolerant keyword matching)
+
+# Database
+SQLAlchemy>=2.0.0          # ORM
+psycopg2-binary>=2.9.0     # PostgreSQL driver
+
+# Web framework (Phase 2)
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9    # File upload support for FastAPI
+
+# CLI
+click>=8.1.0
+
+# Config
+python-dotenv>=1.0.0
+
+# Export
+openpyxl>=3.1.0            # Excel export (optional, CSV also supported)
+
+# Image processing extras
+numpy>=1.24.0              # Used in image preprocessing helpers

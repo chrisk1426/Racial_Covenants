@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "racial-covenant-detector"
+version = "0.1.0"
+description = "AI-powered tool to detect racial covenant language in scanned deed books"
+requires-python = ">=3.10"
+readme = "README.md"
+
+[project.scripts]
+covenant = "src.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
