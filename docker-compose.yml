@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: covenant
+      POSTGRES_PASSWORD: covenant
+      POSTGRES_DB: racial_covenants
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U covenant -d racial_covenants"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://covenant:covenant@db:5432/racial_covenants
+      DATA_DIR: /app/data
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
+      OCR_CONFIDENCE_THRESHOLD: ${OCR_CONFIDENCE_THRESHOLD:-0.5}
+      API_RATE_LIMIT_DELAY: ${API_RATE_LIMIT_DELAY:-0.5}
+    volumes:
+      # Persist uploaded PDFs, page images, and exports across container restarts
+      - app_data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  app_data:

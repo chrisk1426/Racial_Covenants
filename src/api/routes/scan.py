@@ -111,17 +111,13 @@ def get_scan_status(job_id: int) -> ScanStatusOut:
 
 
 @router.get("/export/{book_id}")
-def export_book_csv(
-    book_id: int,
-    mode: str = "all_detections",
-) -> dict:
+def export_book_csv(book_id: int, mode: str = "all_detections"):
     """
-    Generate a CSV export for a book and return its path.
+    Generate a CSV export for a book and stream the file to the browser.
 
-    The frontend's Export button calls this, then downloads the file.
-    In a full implementation, this would stream the CSV directly via
-    StreamingResponse; this stub returns the path for now.
+    The frontend's Export button calls this endpoint and triggers a download.
     """
+    from fastapi.responses import FileResponse
     from src.database import get_session
     from src.database.models import Book
 
@@ -133,7 +129,13 @@ def export_book_csv(
 
     from src.pipeline.exporter import export_csv
     output_path = export_csv(book_number=book_number, mode=mode)
-    return {"csv_path": str(output_path)}
+    filename = f"covenants_book{book_number}_{mode}.csv"
+    return FileResponse(
+        path=str(output_path),
+        filename=filename,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ── Background scan runner ────────────────────────────────────────────────────

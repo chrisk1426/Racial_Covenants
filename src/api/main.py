@@ -15,16 +15,21 @@ Start the server:
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.api.routes import books, detections, scan
+from src.config import config
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize the database on startup."""
+    """Initialize database and data directories on startup."""
+    config.ensure_dirs()
     from src.database import init_db
     init_db()
     yield
@@ -57,6 +62,33 @@ app.include_router(detections.router, prefix="/detections", tags=["Detections"])
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/page-image")
+def serve_page_image(path: str = Query(...)) -> FileResponse:
+    """
+    Serve a page image by its relative path (as stored in the DB image_path column).
+
+    The path is relative to DATA_DIR, e.g. "images/book_290/page_009.png".
+    Path traversal is blocked by resolving against DATA_DIR.
+    """
+    data_root = config.DATA_DIR.resolve()
+    full_path = (config.DATA_DIR / path).resolve()
+
+    # Guard against path traversal
+    if not str(full_path).startswith(str(data_root)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    return FileResponse(full_path, media_type="image/png")
+
+
+# Serve built React frontend in production (when frontend/dist exists)
+_frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
+if _frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
 
 
 @app.get("/stats")

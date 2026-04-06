@@ -7,6 +7,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+
+
 router = APIRouter()
 
 
@@ -97,6 +99,30 @@ def get_book_results(book_id: int) -> list[dict]:
                 "review_decision": r.decision if r else None,
                 "reviewer_notes": r.notes if r else None,
                 "grantor_grantee": r.grantor_grantee if r else None,
+                "property_info": r.property_info if r else None,
             }
             for d, p, r in rows
         ]
+
+
+@router.get("/{book_id}/pages/{page_number}")
+def get_page_detail(book_id: int, page_number: int) -> dict:
+    """Return full OCR text and image path for one page — loaded on demand in the UI."""
+    from src.database import get_session
+    from src.database.models import Page
+
+    with get_session() as session:
+        page = (
+            session.query(Page)
+            .filter_by(book_id=book_id, page_number=page_number)
+            .first()
+        )
+        if not page:
+            raise HTTPException(status_code=404, detail="Page not found")
+        return {
+            "page_number": page.page_number,
+            "image_path": page.image_path,
+            "ocr_text": page.ocr_text,
+            "ocr_confidence": page.ocr_confidence,
+            "keyword_hit": page.keyword_hit,
+        }
