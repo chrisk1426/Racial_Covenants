@@ -169,6 +169,8 @@ def _run_scan_background(
             pdf_path=pdf_path,
             source_url=source_url,
             skip_ai=skip_ai,
+            book_id=book_id,
+            job_id=job_id,
         )
     except Exception as exc:
         logger.error("Background scan failed for book %s: %s", book_number, exc)
@@ -178,26 +180,43 @@ def _run_scan_background(
             )
 
 
-# ── Scrape endpoint ───────────────────────────────────────────────────────────
+# ── Process pre-scraped images endpoint ──────────────────────────────────────
 
-class ScrapeRequest(BaseModel):
+class ProcessRequest(BaseModel):
     book_number: str
-    last_page: int
     source_url: str | None = None
     skip_ai: bool = False
 
 
-@router.post("/scrape")
-def start_scrape(req: ScrapeRequest, background_tasks: BackgroundTasks) -> dict:
+@router.post("/process")
+def process_scraped_book(req: ProcessRequest, background_tasks: BackgroundTasks) -> dict:
     """
-    Kick off a scrape-then-scan job for a book on the Broome County site.
+    Run the covenant detection pipeline on images already scraped locally.
 
-    The scraper downloads each page image directly from SearchIQS, then
-    runs the full covenant detection pipeline on the saved images.
-    Returns immediately with job_id for progress polling.
+    The scraper (scrape_deeds.py) must be run on the host Mac first.
+    Images are expected at deed_images/book_{number}/ which is mounted
+    into the container at /app/data/scraped/book_{number}/.
     """
+    from src.config import config
     from src.database import get_session
     from src.database.models import Book, ScanJob
+
+    image_dir = config.DATA_DIR / "scraped" / f"book_{req.book_number}"
+    if not image_dir.exists():
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No scraped images found for book {req.book_number}. "
+                f"Run the scraper on your Mac first: "
+                f"python scrape_deeds.py --book {req.book_number} --end-page 1000"
+            ),
+        )
+
+    images = sorted(image_dir.glob("*.png"))
+    if not images:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"No PNG images found in {image_dir}")
 
     with get_session() as session:
         book = Book(
@@ -210,82 +229,46 @@ def start_scrape(req: ScrapeRequest, background_tasks: BackgroundTasks) -> dict:
         session.flush()
         book_id = book.id
 
-        job = ScanJob(book_id=book_id, status="scraping")
+        job = ScanJob(book_id=book_id, status="queued")
         session.add(job)
         session.flush()
         job_id = job.id
 
     background_tasks.add_task(
-        _run_scrape_and_scan_background,
+        _run_process_background,
         book_id=book_id,
         job_id=job_id,
         book_number=req.book_number,
-        last_page=req.last_page,
+        image_dir=image_dir,
         source_url=req.source_url,
         skip_ai=req.skip_ai,
     )
 
-    return {"book_id": book_id, "job_id": job_id, "status": "scraping"}
+    return {"book_id": book_id, "job_id": job_id, "status": "queued"}
 
 
-def _run_scrape_and_scan_background(
+def _run_process_background(
     *,
     book_id: int,
     job_id: int,
     book_number: str,
-    last_page: int,
+    image_dir: Path,
     source_url: str | None,
     skip_ai: bool,
 ) -> None:
-    """Scrape page images from the county site, then run the detection pipeline."""
-    import asyncio
+    """Run the detection pipeline on pre-scraped images."""
     import logging
-    import sys
     from datetime import datetime, timezone
-    from pathlib import Path
-
-    from src.config import config
     from src.database import get_session
-    from src.database.models import Book, ScanJob
+    from src.database.models import ScanJob
     from src.pipeline.scanner import run_scan
 
     logger = logging.getLogger(__name__)
 
-    image_dir = config.DATA_DIR / "scraped" / f"book_{book_number}"
-    image_dir.mkdir(parents=True, exist_ok=True)
-
     with get_session() as session:
         session.query(ScanJob).filter_by(id=job_id).update(
-            {"status": "scraping", "started_at": datetime.now(timezone.utc)}
+            {"status": "ocr", "started_at": datetime.now(timezone.utc)}
         )
-
-    # ── Stage 1: scrape images from county site ───────────────────────────────
-    try:
-        # Import the scraper from the project root
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-        from scrape_deeds import scrape_book
-
-        asyncio.run(scrape_book(
-            book_number=int(book_number),
-            start_page=1,
-            end_page=last_page,
-            output_dir=str(config.DATA_DIR / "scraped"),
-            min_delay=2,
-            max_delay=4,
-            headless=True,
-        ))
-    except Exception as exc:
-        logger.error("Scraping failed for book %s: %s", book_number, exc)
-        with get_session() as session:
-            session.query(ScanJob).filter_by(id=job_id).update(
-                {"status": "error", "error_message": f"Scraping failed: {exc}"}
-            )
-            session.query(Book).filter_by(id=book_id).update({"status": "error"})
-        return
-
-    # ── Stage 2: run covenant detection on scraped images ─────────────────────
-    with get_session() as session:
-        session.query(ScanJob).filter_by(id=job_id).update({"status": "ocr"})
 
     try:
         run_scan(
@@ -293,9 +276,11 @@ def _run_scrape_and_scan_background(
             image_dir=image_dir,
             source_url=source_url,
             skip_ai=skip_ai,
+            book_id=book_id,
+            job_id=job_id,
         )
     except Exception as exc:
-        logger.error("Scan failed for book %s: %s", book_number, exc)
+        logger.error("Processing failed for book %s: %s", book_number, exc)
         with get_session() as session:
             session.query(ScanJob).filter_by(id=job_id).update(
                 {"status": "error", "error_message": str(exc)}

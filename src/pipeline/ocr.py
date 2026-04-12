@@ -59,17 +59,17 @@ def ocr_tesseract(image_path: Path | str) -> OCRResult:
     image_path = Path(image_path)
     image = Image.open(image_path)
 
-    # Get text
+    # Get text with full formatting preserved
     text: str = pytesseract.image_to_string(image, lang="eng")
 
-    # Get per-word confidence data to compute an overall page confidence
+    # Get per-word confidence scores
     try:
         data = pytesseract.image_to_data(image, lang="eng", output_type=pytesseract.Output.DICT)
-        confs = [c for c in data["conf"] if c != -1]  # -1 = non-word segment
+        confs = [c for c in data["conf"] if c != -1]
         mean_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.0
     except Exception as exc:
         logger.warning("Could not compute Tesseract confidence: %s", exc)
-        mean_conf = 0.5  # assume mediocre quality if we can't measure
+        mean_conf = 0.5
 
     logger.debug(
         "Tesseract OCR: %s — %d chars, confidence=%.2f",

@@ -31,6 +31,8 @@ services:
     volumes:
       # Persist uploaded PDFs, page images, and exports across container restarts
       - app_data:/app/data
+      # Mount locally-scraped images (from scrape_deeds.py on the Mac) into Docker
+      - ./deed_images:/app/data/scraped:ro
     depends_on:
       db:
         condition: service_healthy

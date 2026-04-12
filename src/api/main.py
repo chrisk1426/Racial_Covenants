@@ -85,12 +85,6 @@ def serve_page_image(path: str = Query(...)) -> FileResponse:
     return FileResponse(full_path, media_type="image/png")
 
 
-# Serve built React frontend in production (when frontend/dist exists)
-_frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
-if _frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
-
-
 @app.get("/stats")
 def stats() -> dict:
     """Dashboard statistics — mirrors the `covenant stats` CLI command."""
@@ -113,3 +107,15 @@ def stats() -> dict:
         "false_positives": false_positives,
         "pending_review": pending,
     }
+
+
+# Serve built React frontend in production (when frontend/dist exists).
+# Must come LAST — the catch-all serves index.html for all React Router paths.
+_frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
+if _frontend_dist.exists():
+    app.mount("/assets", StaticFiles(directory=str(_frontend_dist / "assets")), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_spa(full_path: str) -> FileResponse:
+        """Serve index.html for all unmatched paths so React Router works."""
+        return FileResponse(str(_frontend_dist / "index.html"))

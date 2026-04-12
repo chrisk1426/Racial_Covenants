@@ -31,13 +31,12 @@ export async function getScanStatus(jobId) {
   return request(`/scan/status/${jobId}`)
 }
 
-export async function startScrapeScan(bookNumber, lastPage, sourceUrl, skipAi = false) {
-  return request('/scan/scrape', {
+export async function processScrapedBook(bookNumber, sourceUrl, skipAi = false) {
+  return request('/scan/process', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       book_number: bookNumber,
-      last_page: lastPage,
       source_url: sourceUrl || null,
       skip_ai: skipAi,
     }),

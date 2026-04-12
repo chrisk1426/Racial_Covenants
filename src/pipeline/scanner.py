@@ -49,6 +49,8 @@ def run_scan(
     use_vision_fallback: bool = True,
     skip_ai: bool = False,
     progress_callback: Callable[[int, int, int], None] | None = None,
+    book_id: int | None = None,
+    job_id: int | None = None,
 ) -> int:
     """
     Run the full detection pipeline on a deed book.
@@ -56,6 +58,9 @@ def run_scan(
     Accepts either a PDF file or a directory of pre-scraped page images
     (e.g., output from scrape_deeds.py).  Exactly one of pdf_path or
     image_dir must be provided.
+
+    If book_id and job_id are provided (passed from the API), those existing
+    records are updated in place rather than creating new ones.
 
     Args:
         book_number:         The book number (used for naming and DB lookup).
@@ -65,9 +70,11 @@ def run_scan(
         use_vision_fallback: Enable Claude Vision fallback for low-confidence OCR pages.
         skip_ai:             If True, only run OCR + keyword filter (no API calls).
         progress_callback:   Optional function(pages_processed, total, pages_flagged).
+        book_id:             Existing Book DB id (from API). If None, a new record is created.
+        job_id:              Existing ScanJob DB id (from API). If None, a new record is created.
 
     Returns:
-        The database ID of the Book record created.
+        The database ID of the Book record created or used.
     """
     if pdf_path is None and image_dir is None:
         raise ValueError("Provide either pdf_path or image_dir.")
@@ -76,23 +83,32 @@ def run_scan(
 
     config.ensure_dirs()
 
-    # ── 1. Create database records ────────────────────────────────────────────
+    # ── 1. Create or reuse database records ───────────────────────────────────
     upload_filename = Path(pdf_path).name if pdf_path else Path(image_dir).name
-    with get_session() as session:
-        book = Book(
-            book_number=book_number,
-            upload_filename=upload_filename,
-            source_url=source_url,
-            status="processing",
-        )
-        session.add(book)
-        session.flush()  # populate book.id
-        book_id = book.id
+    if book_id is None or job_id is None:
+        # Called from CLI — create fresh records
+        with get_session() as session:
+            book = Book(
+                book_number=book_number,
+                upload_filename=upload_filename,
+                source_url=source_url,
+                status="processing",
+            )
+            session.add(book)
+            session.flush()
+            book_id = book.id
 
-        job = ScanJob(book_id=book_id, status="ocr", started_at=_utcnow())
-        session.add(job)
-        session.flush()
-        job_id = job.id
+            job = ScanJob(book_id=book_id, status="ocr", started_at=_utcnow())
+            session.add(job)
+            session.flush()
+            job_id = job.id
+    else:
+        # Called from API — update the existing records to "processing"
+        with get_session() as session:
+            session.query(Book).filter_by(id=book_id).update({"status": "processing"})
+            session.query(ScanJob).filter_by(id=job_id).update(
+                {"status": "ocr", "started_at": _utcnow()}
+            )
 
     logger.info("Scan started: Book %s (db id=%d, job id=%d)", book_number, book_id, job_id)
 

@@ -235,10 +235,10 @@ def classify_page(
     Raises:
         RuntimeError if the API call fails after retries.
     """
-    use_vision = (
-        ocr_confidence < config.OCR_CONFIDENCE_THRESHOLD
-        and image_path is not None
-    )
+    # Always use vision when an image is available — old typewritten deed documents
+    # are exactly the use case where Claude Vision outperforms text-only classification.
+    # Cost difference is ~$1/book, negligible vs. the risk of missing a covenant.
+    use_vision = image_path is not None
 
     for attempt in range(3):
         try:

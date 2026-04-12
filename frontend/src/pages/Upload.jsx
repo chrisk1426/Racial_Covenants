@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { uploadScan, startScrapeScan } from '../api'
+import { uploadScan, processScrapedBook } from '../api'
 
 export default function Upload() {
   const navigate = useNavigate()
@@ -19,8 +19,7 @@ export default function Upload() {
   const [file, setFile] = useState(null)
   const [dragover, setDragover] = useState(false)
 
-  // Scrape-only
-  const [lastPage, setLastPage] = useState('')
+  // (scrape tab has no extra state — just book number)
 
   function handleDrop(e) {
     e.preventDefault()
@@ -52,17 +51,12 @@ export default function Upload() {
         setLoading(false)
       }
     } else {
-      const pages = parseInt(lastPage, 10)
-      if (!lastPage || isNaN(pages) || pages < 1) {
-        setError('Please enter the number of pages in this book.')
-        return
-      }
       setLoading(true)
       try {
-        const { job_id } = await startScrapeScan(bookNumber.trim(), pages, sourceUrl.trim() || null)
+        const { job_id } = await processScrapedBook(bookNumber.trim(), sourceUrl.trim() || null)
         navigate(`/processing/${job_id}`)
       } catch (err) {
-        setError(err.message || 'Could not start scrape. Is the backend running?')
+        setError(err.message || 'No scraped images found. Run the scraper on your Mac first.')
         setLoading(false)
       }
     }
@@ -178,23 +172,16 @@ export default function Upload() {
             </div>
           )}
 
-          {/* Scrape tab: page count field */}
+          {/* Scrape tab: instructions */}
           {tab === 'scrape' && (
-            <div className="form-group">
-              <label htmlFor="last-page">Number of Pages *</label>
-              <input
-                id="last-page"
-                type="number"
-                min="1"
-                placeholder="e.g. 1000"
-                value={lastPage}
-                onChange={e => setLastPage(e.target.value)}
-                disabled={loading}
-              />
-              <p className="hint">
-                How many pages are in this book? Typical Broome County deed books are 500–1,500 pages.
-                Check the county site if unsure.
-              </p>
+            <div className="alert alert-info" style={{ marginBottom: 16 }}>
+              <div>
+                <div className="bold" style={{ marginBottom: 6 }}>Step 1 — Run the scraper on your Mac first</div>
+                <code style={{ fontSize: 12, display: 'block', background: '#e0f2fe', padding: '6px 10px', borderRadius: 4, marginBottom: 6 }}>
+                  python scrape_deeds.py --book {bookNumber || 'NUMBER'} --end-page 1000
+                </code>
+                <div style={{ fontSize: 13 }}>A browser window will open and download each page automatically. When it finishes, come back here and click the button below.</div>
+              </div>
             </div>
           )}
 
@@ -206,7 +193,7 @@ export default function Upload() {
             {loading ? (
               <><span className="spinner spinner-sm" /> {tab === 'scrape' ? 'Starting download…' : 'Uploading…'}</>
             ) : (
-              tab === 'scrape' ? '🌐 Download & Scan' : '▶ Start Scan'
+              tab === 'scrape' ? '▶ Process Scraped Images' : '▶ Start Scan'
             )}
           </button>
         </form>
@@ -235,10 +222,10 @@ export default function Upload() {
         <div className="card card-sm mt-24" style={{ background: '#eff6ff', borderColor: '#bfdbfe' }}>
           <p className="small bold mb-4">💡 How this works</p>
           <ul style={{ paddingLeft: 18, fontSize: 13, color: '#1e40af', lineHeight: 1.8 }}>
-            <li>The tool opens the Broome County records site and saves each page image automatically.</li>
+            <li>Run <code>scrape_deeds.py</code> on your Mac — a browser opens and saves each page image.</li>
             <li>No account or payment needed — viewing pages on the site is free.</li>
-            <li>Downloading takes 1–2 hours for a full book (3–6 seconds per page).</li>
-            <li>Covenant detection runs automatically once downloading is complete.</li>
+            <li>Scraping takes 1–2 hours for a full book (3–6 seconds per page).</li>
+            <li>Once scraping is done, enter the book number here and click "Process".</li>
             <li>Known covenant books: #290 (pg. 9), #180 (pg. 438).</li>
           </ul>
         </div>
