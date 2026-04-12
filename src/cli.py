@@ -84,9 +84,15 @@ def init_db_command() -> None:
 )
 @click.option(
     "--pdf", "-f",
-    required=True,
+    default=None,
     type=click.Path(exists=True, path_type=Path),
     help="Path to the deed book PDF.",
+)
+@click.option(
+    "--image-dir", "-d",
+    default=None,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Path to a directory of scraped page images (output from scrape_deeds.py).",
 )
 @click.option(
     "--source-url",
@@ -110,13 +116,24 @@ def init_db_command() -> None:
 )
 def scan_command(
     book_number: str,
-    pdf: Path,
+    pdf: Path | None,
+    image_dir: Path | None,
     source_url: str | None,
     skip_ai: bool,
     no_vision: bool,
 ) -> None:
-    """Scan a deed book PDF for racial covenant language."""
+    """Scan a deed book for racial covenant language.
+
+    Provide either --pdf (uploaded PDF) or --image-dir (scraped page images).
+    """
     from src.config import config
+
+    if pdf is None and image_dir is None:
+        click.secho("Error: provide either --pdf or --image-dir.", fg="red", err=True)
+        raise SystemExit(1)
+    if pdf is not None and image_dir is not None:
+        click.secho("Error: provide either --pdf or --image-dir, not both.", fg="red", err=True)
+        raise SystemExit(1)
 
     if not skip_ai and not config.ANTHROPIC_API_KEY:
         click.secho(
@@ -127,7 +144,8 @@ def scan_command(
         )
         raise SystemExit(1)
 
-    click.echo(f"Starting scan: Book {book_number} — {pdf.name}")
+    source_label = pdf.name if pdf else str(image_dir)
+    click.echo(f"Starting scan: Book {book_number} — {source_label}")
     if skip_ai:
         click.secho("  Mode: DRY RUN (keyword filter only, no AI)", fg="yellow")
     else:
@@ -152,8 +170,9 @@ def scan_command(
     try:
         from src.pipeline.scanner import run_scan
         book_id = run_scan(
-            pdf_path=pdf,
             book_number=book_number,
+            pdf_path=pdf,
+            image_dir=image_dir,
             source_url=source_url,
             use_vision_fallback=not no_vision,
             skip_ai=skip_ai,

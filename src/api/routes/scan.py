@@ -149,11 +149,7 @@ def _run_scan_background(
     source_url: str | None,
     skip_ai: bool,
 ) -> None:
-    """
-    Run the full scan pipeline in a background thread.
-
-    Updates the ScanJob status so the polling endpoint reflects progress.
-    """
+    """Run the full scan pipeline in a background thread."""
     from src.database import get_session
     from src.database.models import ScanJob
     from src.pipeline.scanner import run_scan
@@ -169,13 +165,137 @@ def _run_scan_background(
 
     try:
         run_scan(
-            pdf_path=pdf_path,
             book_number=book_number,
+            pdf_path=pdf_path,
             source_url=source_url,
             skip_ai=skip_ai,
         )
     except Exception as exc:
         logger.error("Background scan failed for book %s: %s", book_number, exc)
+        with get_session() as session:
+            session.query(ScanJob).filter_by(id=job_id).update(
+                {"status": "error", "error_message": str(exc)}
+            )
+
+
+# ── Scrape endpoint ───────────────────────────────────────────────────────────
+
+class ScrapeRequest(BaseModel):
+    book_number: str
+    last_page: int
+    source_url: str | None = None
+    skip_ai: bool = False
+
+
+@router.post("/scrape")
+def start_scrape(req: ScrapeRequest, background_tasks: BackgroundTasks) -> dict:
+    """
+    Kick off a scrape-then-scan job for a book on the Broome County site.
+
+    The scraper downloads each page image directly from SearchIQS, then
+    runs the full covenant detection pipeline on the saved images.
+    Returns immediately with job_id for progress polling.
+    """
+    from src.database import get_session
+    from src.database.models import Book, ScanJob
+
+    with get_session() as session:
+        book = Book(
+            book_number=req.book_number,
+            upload_filename=f"scraped_book_{req.book_number}",
+            source_url=req.source_url,
+            status="pending",
+        )
+        session.add(book)
+        session.flush()
+        book_id = book.id
+
+        job = ScanJob(book_id=book_id, status="scraping")
+        session.add(job)
+        session.flush()
+        job_id = job.id
+
+    background_tasks.add_task(
+        _run_scrape_and_scan_background,
+        book_id=book_id,
+        job_id=job_id,
+        book_number=req.book_number,
+        last_page=req.last_page,
+        source_url=req.source_url,
+        skip_ai=req.skip_ai,
+    )
+
+    return {"book_id": book_id, "job_id": job_id, "status": "scraping"}
+
+
+def _run_scrape_and_scan_background(
+    *,
+    book_id: int,
+    job_id: int,
+    book_number: str,
+    last_page: int,
+    source_url: str | None,
+    skip_ai: bool,
+) -> None:
+    """Scrape page images from the county site, then run the detection pipeline."""
+    import asyncio
+    import logging
+    import sys
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from src.config import config
+    from src.database import get_session
+    from src.database.models import Book, ScanJob
+    from src.pipeline.scanner import run_scan
+
+    logger = logging.getLogger(__name__)
+
+    image_dir = config.DATA_DIR / "scraped" / f"book_{book_number}"
+    image_dir.mkdir(parents=True, exist_ok=True)
+
+    with get_session() as session:
+        session.query(ScanJob).filter_by(id=job_id).update(
+            {"status": "scraping", "started_at": datetime.now(timezone.utc)}
+        )
+
+    # ── Stage 1: scrape images from county site ───────────────────────────────
+    try:
+        # Import the scraper from the project root
+        sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+        from scrape_deeds import scrape_book
+
+        asyncio.run(scrape_book(
+            book_number=int(book_number),
+            start_page=1,
+            end_page=last_page,
+            output_dir=str(config.DATA_DIR / "scraped"),
+            min_delay=2,
+            max_delay=4,
+            headless=True,
+        ))
+    except Exception as exc:
+        logger.error("Scraping failed for book %s: %s", book_number, exc)
+        with get_session() as session:
+            session.query(ScanJob).filter_by(id=job_id).update(
+                {"status": "error", "error_message": f"Scraping failed: {exc}"}
+            )
+            session.query(Book).filter_by(id=book_id).update({"status": "error"})
+        return
+
+    # ── Stage 2: run covenant detection on scraped images ─────────────────────
+    with get_session() as session:
+        session.query(ScanJob).filter_by(id=job_id).update({"status": "ocr"})
+
+    try:
+        run_scan(
+            book_number=book_number,
+            image_dir=image_dir,
+            source_url=source_url,
+            skip_ai=skip_ai,
+        )
+    except Exception as exc:
+        logger.error("Scan failed for book %s: %s", book_number, exc)
         with get_session() as session:
             session.query(ScanJob).filter_by(id=job_id).update(
                 {"status": "error", "error_message": str(exc)}

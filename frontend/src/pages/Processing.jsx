@@ -4,6 +4,7 @@ import { getScanStatus } from '../api'
 
 const STAGE_LABELS = {
   queued: { label: 'Preparing…', cls: 'stage-queued', icon: '⏳' },
+  scraping: { label: 'Downloading pages from county site…', cls: 'stage-queued', icon: '🌐' },
   ocr: { label: 'Extracting text from pages…', cls: 'stage-ocr', icon: '🔍' },
   filtering: { label: 'Screening for covenant language…', cls: 'stage-filtering', icon: '🔎' },
   classifying: { label: 'AI analyzing flagged pages…', cls: 'stage-classifying', icon: '🤖' },

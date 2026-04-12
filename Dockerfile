@@ -26,10 +26,14 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install Playwright + Chromium (used by the county site scraper)
+RUN python -m playwright install --with-deps chromium
+
 # Copy application source
 COPY src/ src/
 COPY migrations/ migrations/
 COPY pyproject.toml .
+COPY scrape_deeds.py .
 
 # Copy built frontend from previous stage
 COPY --from=frontend-builder /app/frontend/dist frontend/dist

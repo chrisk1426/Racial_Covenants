@@ -31,6 +31,19 @@ export async function getScanStatus(jobId) {
   return request(`/scan/status/${jobId}`)
 }
 
+export async function startScrapeScan(bookNumber, lastPage, sourceUrl, skipAi = false) {
+  return request('/scan/scrape', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      book_number: bookNumber,
+      last_page: lastPage,
+      source_url: sourceUrl || null,
+      skip_ai: skipAi,
+    }),
+  })
+}
+
 export function exportCsvUrl(bookId, mode = 'all_detections') {
   return `/scan/export/${bookId}?mode=${mode}`
 }

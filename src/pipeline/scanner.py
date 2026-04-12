@@ -30,7 +30,7 @@ from src.config import config
 from src.database import get_session
 from src.database.models import Book, Detection, Page, ScanJob
 from src.pipeline.classifier import classify_page
-from src.pipeline.ingestion import split_pdf
+from src.pipeline.ingestion import split_image_dir, split_pdf
 from src.pipeline.keyword_filter import filter_page
 from src.pipeline.ocr import ocr_page
 
@@ -42,37 +42,46 @@ def _utcnow() -> datetime:
 
 
 def run_scan(
-    pdf_path: Path | str,
     book_number: str,
+    pdf_path: Path | str | None = None,
+    image_dir: Path | str | None = None,
     source_url: str | None = None,
     use_vision_fallback: bool = True,
     skip_ai: bool = False,
     progress_callback: Callable[[int, int, int], None] | None = None,
 ) -> int:
     """
-    Run the full detection pipeline on a deed book PDF.
+    Run the full detection pipeline on a deed book.
+
+    Accepts either a PDF file or a directory of pre-scraped page images
+    (e.g., output from scrape_deeds.py).  Exactly one of pdf_path or
+    image_dir must be provided.
 
     Args:
-        pdf_path:            Path to the uploaded PDF.
         book_number:         The book number (used for naming and DB lookup).
+        pdf_path:            Path to the uploaded PDF.
+        image_dir:           Path to a directory of page images (PNG/JPG/TIFF).
         source_url:          Optional county website URL for this book.
         use_vision_fallback: Enable Claude Vision fallback for low-confidence OCR pages.
         skip_ai:             If True, only run OCR + keyword filter (no API calls).
-                             Useful for budget-conscious dry runs.
-        progress_callback:   Optional function(pages_processed, total, pages_flagged)
-                             called after each page — for CLI progress bars.
+        progress_callback:   Optional function(pages_processed, total, pages_flagged).
 
     Returns:
         The database ID of the Book record created.
     """
+    if pdf_path is None and image_dir is None:
+        raise ValueError("Provide either pdf_path or image_dir.")
+    if pdf_path is not None and image_dir is not None:
+        raise ValueError("Provide either pdf_path or image_dir, not both.")
+
     config.ensure_dirs()
-    pdf_path = Path(pdf_path)
 
     # ── 1. Create database records ────────────────────────────────────────────
+    upload_filename = Path(pdf_path).name if pdf_path else Path(image_dir).name
     with get_session() as session:
         book = Book(
             book_number=book_number,
-            upload_filename=pdf_path.name,
+            upload_filename=upload_filename,
             source_url=source_url,
             status="processing",
         )
@@ -87,18 +96,17 @@ def run_scan(
 
     logger.info("Scan started: Book %s (db id=%d, job id=%d)", book_number, book_id, job_id)
 
-    # ── 2. Split PDF and process page by page ─────────────────────────────────
+    # ── 2. Ingest source and process page by page ─────────────────────────────
     pages_processed = 0
     pages_flagged = 0
     total_pages = 0
 
-    # We iterate split_pdf lazily, but we need to update total_pages once we
-    # know it.  We'll get it from len(pages) on the first iteration… actually
-    # we can't know it upfront with a generator.  Instead, collect all (n, path)
-    # pairs first (memory is acceptable for PNG paths; the images themselves are
-    # already on disk).
-    logger.info("Splitting PDF: %s", pdf_path.name)
-    page_pairs = list(split_pdf(pdf_path, book_number))
+    if pdf_path is not None:
+        logger.info("Splitting PDF: %s", Path(pdf_path).name)
+        page_pairs = list(split_pdf(pdf_path, book_number))
+    else:
+        logger.info("Loading scraped images from: %s", image_dir)
+        page_pairs = list(split_image_dir(image_dir, book_number))
     total_pages = len(page_pairs)
 
     with get_session() as session:
