@@ -2,7 +2,7 @@
 
 A full-stack AI tool that scans digitized historical property deed books and flags pages containing racial covenant language — restrictive clauses that barred people from buying or occupying homes based on race, ethnicity, or national origin.
 
-Built for a researcher at Broome County, NY. Designed around a core constraint: **missing a real covenant is far worse than a false positive**, so the pipeline is tuned for recall over precision at every stage.
+Built for researchers at Binghamton University in Broome County, NY. Designed around a core constraint: **missing a real covenant is far worse than a false positive**, so the pipeline is tuned for recall over precision at every stage.
 
 https://github.com/user-attachments/assets/a28a10b7-e272-4fa1-821f-228d1aa9aada
 
