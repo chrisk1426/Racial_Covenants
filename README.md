@@ -4,6 +4,8 @@ A full-stack AI tool that scans digitized historical property deed books and fla
 
 Built for a researcher at Broome County, NY. Designed around a core constraint: **missing a real covenant is far worse than a false positive**, so the pipeline is tuned for recall over precision at every stage.
 
+<video src="docs/demo.mp4" controls width="100%"></video>
+
 ---
 
 ## What It Does

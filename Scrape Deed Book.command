@@ -11,18 +11,33 @@ if [ -z "$BOOK" ]; then
     exit 0
 fi
 
+# Ask for first page
+START_PAGE=$(osascript -e 'text returned of (display dialog "Enter first page number:" default answer "1" with title "Deed Scraper")')
+if [ -z "$START_PAGE" ]; then
+    osascript -e 'display alert "Cancelled" message "No start page entered."'
+    exit 0
+fi
+
 # Ask for last page
 END_PAGE=$(osascript -e 'text returned of (display dialog "Enter last page number:" default answer "1000" with title "Deed Scraper")')
 if [ -z "$END_PAGE" ]; then
-    osascript -e 'display alert "Cancelled" message "No page number entered."'
+    osascript -e 'display alert "Cancelled" message "No end page entered."'
     exit 0
 fi
 
 osascript -e 'display notification "Starting scraper — Chrome will open shortly." with title "Deed Scraper"'
 
 # Run the scraper
-python scrape_deeds.py --book "$BOOK" --end-page "$END_PAGE"
+python scrape_deeds.py --book "$BOOK" --start-page "$START_PAGE" --end-page "$END_PAGE"
+EXIT_CODE=$?
 
-# When done, open the web UI
-osascript -e 'display notification "Scraping complete! Opening the web UI." with title "Deed Scraper"'
-open http://localhost:8000
+if [ $EXIT_CODE -eq 0 ]; then
+    osascript -e 'display notification "Scraping complete! Opening the web UI." with title "Deed Scraper"'
+    open http://localhost:8000
+else
+    echo ""
+    echo "Scraper exited with error (code $EXIT_CODE). Check the output above."
+fi
+
+echo ""
+read -p "Press ENTER to close this window..."

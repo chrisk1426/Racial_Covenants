@@ -116,20 +116,12 @@ def initialize_session(driver) -> None:
     driver.get(LANDING_URL)
     human_delay(2, 4)
 
-    # Step 2: Manual Cloudflare pause
-    # Let the user confirm the page is past any bot challenge before continuing.
-    print()
-    print("  ┌─────────────────────────────────────────────────────────────┐")
-    print("  │  Look at the Chrome window that just opened.                │")
-    print("  │                                                             │")
-    print("  │  • If you see a Cloudflare 'Verifying…' spinner or a       │")
-    print("  │    checkbox, wait for it to pass (or click the checkbox).   │")
-    print("  │                                                             │")
-    print("  │  • Once the normal login page is visible, come back here   │")
-    print("  │    and press ENTER to continue.                            │")
-    print("  └─────────────────────────────────────────────────────────────┘")
-    print()
-    input("  Press ENTER when the page has loaded > ")
+    # Step 2: Wait for guest login button — confirms Cloudflare has cleared
+    print("  Waiting for login page (up to 60s)...")
+    WebDriverWait(driver, 60).until(
+        EC.element_to_be_clickable((By.CSS_SELECTOR, "#btnGuestLogin"))
+    )
+    print("  Login page ready ✓")
 
     # Step 3: Click guest login via JS — no mouse movement that could drift
     print("  Clicking 'Search Records as Guest'...")
@@ -139,14 +131,15 @@ def initialize_session(driver) -> None:
     )
     human_delay(2, 4)
 
-    # Step 4: Another possible Cloudflare check after guest click
-    print()
-    print("  ┌─────────────────────────────────────────────────────────────┐")
-    print("  │  Check the browser again — another verification may appear. │")
-    print("  │  Press ENTER once you can see the deed index / search page. │")
-    print("  └─────────────────────────────────────────────────────────────┘")
-    print()
-    input("  Press ENTER when verified > ")
+    # Step 4: Wait for post-login page — either INDEXBOOKS link or book input form
+    print("  Waiting for deed index page (up to 60s)...")
+    WebDriverWait(driver, 60).until(
+        lambda d: (
+            d.find_elements(By.CSS_SELECTOR, 'a[href*="InfodexMain"]') or
+            d.find_elements(By.CSS_SELECTOR, BOOK_INPUT)
+        )
+    )
+    print("  Deed index ready ✓")
 
     # Step 5: We are already on the INDEXBOOKS page after guest login.
     # Do NOT call driver.get(BASE_URL) — direct navigation invalidates the session.
