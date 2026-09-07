@@ -51,6 +51,8 @@ def run_scan(
     progress_callback: Callable[[int, int, int], None] | None = None,
     book_id: int | None = None,
     job_id: int | None = None,
+    start_page: int | None = None,
+    end_page: int | None = None,
 ) -> int:
     """
     Run the full detection pipeline on a deed book.
@@ -72,6 +74,8 @@ def run_scan(
         progress_callback:   Optional function(pages_processed, total, pages_flagged).
         book_id:             Existing Book DB id (from API). If None, a new record is created.
         job_id:              Existing ScanJob DB id (from API). If None, a new record is created.
+        start_page:          If set, only process pages numbered >= this.
+        end_page:            If set, only process pages numbered <= this.
 
     Returns:
         The database ID of the Book record created or used.
@@ -80,6 +84,10 @@ def run_scan(
         raise ValueError("Provide either pdf_path or image_dir.")
     if pdf_path is not None and image_dir is not None:
         raise ValueError("Provide either pdf_path or image_dir, not both.")
+    if start_page is not None and start_page < 1:
+        raise ValueError("start_page must be 1 or greater.")
+    if start_page is not None and end_page is not None and end_page < start_page:
+        raise ValueError("end_page must be greater than or equal to start_page.")
 
     config.ensure_dirs()
 
@@ -120,10 +128,27 @@ def run_scan(
     if pdf_path is not None:
         logger.info("Splitting PDF: %s", Path(pdf_path).name)
         page_pairs = list(split_pdf(pdf_path, book_number))
+        if (start_page is not None or end_page is not None) and page_pairs:
+            lo = start_page or 1
+            hi = end_page if end_page is not None else page_pairs[-1][0]
+            page_pairs = [(pn, p) for pn, p in page_pairs if lo <= pn <= hi]
+            if not page_pairs:
+                raise ValueError(f"PDF has no pages in the range {lo}–{hi}.")
     else:
         logger.info("Loading scraped images from: %s", image_dir)
-        page_pairs = list(split_image_dir(image_dir, book_number))
+        page_pairs = list(
+            split_image_dir(
+                image_dir, book_number, start_page=start_page, end_page=end_page
+            )
+        )
     total_pages = len(page_pairs)
+
+    if start_page is not None or end_page is not None:
+        logger.info(
+            "Page range filter active: %s–%s",
+            start_page or "start",
+            end_page or "end",
+        )
 
     with get_session() as session:
         session.query(ScanJob).filter_by(id=job_id).update(

@@ -114,6 +114,18 @@ def init_db_command() -> None:
     default=False,
     help="Disable Claude Vision fallback for low-confidence OCR pages.",
 )
+@click.option(
+    "--start-page",
+    type=int,
+    default=None,
+    help="Only process pages numbered >= this (default: first page).",
+)
+@click.option(
+    "--end-page",
+    type=int,
+    default=None,
+    help="Only process pages numbered <= this (default: last page).",
+)
 def scan_command(
     book_number: str,
     pdf: Path | None,
@@ -121,6 +133,8 @@ def scan_command(
     source_url: str | None,
     skip_ai: bool,
     no_vision: bool,
+    start_page: int | None,
+    end_page: int | None,
 ) -> None:
     """Scan a deed book for racial covenant language.
 
@@ -177,6 +191,8 @@ def scan_command(
             use_vision_fallback=not no_vision,
             skip_ai=skip_ai,
             progress_callback=progress_callback,
+            start_page=start_page,
+            end_page=end_page,
         )
     finally:
         if progress_state["bar"]:

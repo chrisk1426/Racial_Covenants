@@ -19,7 +19,9 @@ export default function Upload() {
   const [file, setFile] = useState(null)
   const [dragover, setDragover] = useState(false)
 
-  // (scrape tab has no extra state — just book number)
+  // Scrape-only: optional page range (blank = process every scraped page)
+  const [startPage, setStartPage] = useState('')
+  const [endPage, setEndPage] = useState('')
 
   function handleDrop(e) {
     e.preventDefault()
@@ -51,9 +53,28 @@ export default function Upload() {
         setLoading(false)
       }
     } else {
+      const start = startPage.trim() === '' ? null : Number(startPage)
+      const end = endPage.trim() === '' ? null : Number(endPage)
+      if (start !== null && (!Number.isInteger(start) || start < 1)) {
+        setError('Start page must be a whole number of 1 or greater.')
+        return
+      }
+      if (end !== null && (!Number.isInteger(end) || end < 1)) {
+        setError('End page must be a whole number of 1 or greater.')
+        return
+      }
+      if (start !== null && end !== null && end < start) {
+        setError('End page must be greater than or equal to start page.')
+        return
+      }
       setLoading(true)
       try {
-        const { job_id } = await processScrapedBook(bookNumber.trim(), sourceUrl.trim() || null)
+        const { job_id } = await processScrapedBook(
+          bookNumber.trim(),
+          sourceUrl.trim() || null,
+          false,
+          { startPage: start, endPage: end },
+        )
         navigate(`/processing/${job_id}`)
       } catch (err) {
         setError(err.message || 'No scraped images found. Run the scraper on your Mac first.')
@@ -172,17 +193,51 @@ export default function Upload() {
             </div>
           )}
 
-          {/* Scrape tab: instructions */}
+          {/* Scrape tab: instructions + optional page range */}
           {tab === 'scrape' && (
-            <div className="alert alert-info" style={{ marginBottom: 16 }}>
-              <div>
-                <div className="bold" style={{ marginBottom: 6 }}>Step 1 — Run the scraper on your Mac first</div>
-                <code style={{ fontSize: 12, display: 'block', background: '#e0f2fe', padding: '6px 10px', borderRadius: 4, marginBottom: 6 }}>
-                  python scrape_deeds.py --book {bookNumber || 'NUMBER'} --end-page 1000
-                </code>
-                <div style={{ fontSize: 13 }}>A browser window will open and download each page automatically. When it finishes, come back here and click the button below.</div>
+            <>
+              <div className="alert alert-info" style={{ marginBottom: 16 }}>
+                <div>
+                  <div className="bold" style={{ marginBottom: 6 }}>Step 1 — Run the scraper on your Mac first</div>
+                  <code style={{ fontSize: 12, display: 'block', background: '#e0f2fe', padding: '6px 10px', borderRadius: 4, marginBottom: 6 }}>
+                    python scrape_deeds.py --book {bookNumber || 'NUMBER'}{startPage.trim() ? ` --start-page ${startPage.trim()}` : ''} --end-page {endPage.trim() || '1000'}
+                  </code>
+                  <div style={{ fontSize: 13 }}>
+                    Run that command in a terminal on this Mac. A Chrome window opens and
+                    saves each page image to <code>deed_images/</code>. When it finishes,
+                    come back here and click the button below to process the pages.
+                  </div>
+                </div>
               </div>
-            </div>
+
+              <div className="form-group">
+                <label>Page range (optional)</label>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="Start page"
+                    value={startPage}
+                    onChange={e => setStartPage(e.target.value)}
+                    disabled={loading}
+                    aria-label="Start page"
+                  />
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="End page"
+                    value={endPage}
+                    onChange={e => setEndPage(e.target.value)}
+                    disabled={loading}
+                    aria-label="End page"
+                  />
+                </div>
+                <p className="hint">
+                  Leave both blank to process every scraped page. Numbers refer to the
+                  deed page numbers on the scraped images.
+                </p>
+              </div>
+            </>
           )}
 
           <button
@@ -191,7 +246,7 @@ export default function Upload() {
             disabled={loading}
           >
             {loading ? (
-              <><span className="spinner spinner-sm" /> {tab === 'scrape' ? 'Starting download…' : 'Uploading…'}</>
+              <><span className="spinner spinner-sm" /> {tab === 'scrape' ? 'Processing…' : 'Uploading…'}</>
             ) : (
               tab === 'scrape' ? '▶ Process Scraped Images' : '▶ Start Scan'
             )}

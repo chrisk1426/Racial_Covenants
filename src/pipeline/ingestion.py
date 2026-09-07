@@ -20,6 +20,7 @@ Dependencies:
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Iterator
 
@@ -29,6 +30,10 @@ from PIL import Image, ImageFilter, ImageOps
 from src.config import config
 
 logger = logging.getLogger(__name__)
+
+# Trailing run of digits in a filename stem, e.g. "page_0009" -> "0009".
+# Used to recover the real deed page number from scraped image filenames.
+_TRAILING_PAGE_NUM_RE = re.compile(r"(\d+)\D*$")
 
 
 # ── PDF splitting ─────────────────────────────────────────────────────────────
@@ -83,13 +88,24 @@ def split_pdf(pdf_path: Path | str, book_number: str) -> Iterator[tuple[int, Pat
 
 
 def split_image_dir(
-    image_dir: Path | str, book_number: str, extensions: tuple[str, ...] = (".tif", ".tiff", ".jpg", ".jpeg", ".png")
+    image_dir: Path | str,
+    book_number: str,
+    extensions: tuple[str, ...] = (".tif", ".tiff", ".jpg", ".jpeg", ".png"),
+    start_page: int | None = None,
+    end_page: int | None = None,
 ) -> Iterator[tuple[int, Path]]:
     """
     Alternate ingestion path: process a directory of pre-existing page images
-    (e.g., when the county provides TIFFs directly rather than a PDF).
+    (e.g., output from scrape_deeds.py, or TIFFs the county provides directly).
 
     Files are sorted lexicographically — make sure filenames sort in page order.
+    The real deed page number is recovered from the trailing digits of each
+    filename (``page_0009.png`` -> 9); files with no digits fall back to their
+    1-indexed position in the sorted list.
+
+    Args:
+        start_page: If set, skip pages numbered below this.
+        end_page:   If set, skip pages numbered above this.
 
     Yields:
         (page_number, image_path)
@@ -105,7 +121,24 @@ def split_image_dir(
     if not source_files:
         raise ValueError(f"No image files found in {image_dir}")
 
-    for page_number, src_path in enumerate(source_files, start=1):
+    selected: list[tuple[int, Path]] = []
+    for position, src_path in enumerate(source_files, start=1):
+        match = _TRAILING_PAGE_NUM_RE.search(src_path.stem)
+        page_number = int(match.group(1)) if match else position
+        if start_page is not None and page_number < start_page:
+            continue
+        if end_page is not None and page_number > end_page:
+            continue
+        selected.append((page_number, src_path))
+
+    if not selected:
+        raise ValueError(
+            f"No image files in {image_dir} fall within pages "
+            f"{start_page or 'start'}–{end_page or 'end'} "
+            f"({len(source_files)} image(s) present)."
+        )
+
+    for page_number, src_path in selected:
         pil_image = Image.open(src_path)
         preprocessed = preprocess_image(pil_image)
 

@@ -31,7 +31,12 @@ export async function getScanStatus(jobId) {
   return request(`/scan/status/${jobId}`)
 }
 
-export async function processScrapedBook(bookNumber, sourceUrl, skipAi = false) {
+export async function processScrapedBook(
+  bookNumber,
+  sourceUrl,
+  skipAi = false,
+  { startPage = null, endPage = null } = {},
+) {
   return request('/scan/process', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -39,6 +44,8 @@ export async function processScrapedBook(bookNumber, sourceUrl, skipAi = false) 
       book_number: bookNumber,
       source_url: sourceUrl || null,
       skip_ai: skipAi,
+      start_page: startPage,
+      end_page: endPage,
     }),
   })
 }

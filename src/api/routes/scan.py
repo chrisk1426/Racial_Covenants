@@ -186,6 +186,10 @@ class ProcessRequest(BaseModel):
     book_number: str
     source_url: str | None = None
     skip_ai: bool = False
+    # Optional page range. Leave both null to process every scraped page.
+    # Page numbers are the real deed page numbers (from the image filenames).
+    start_page: int | None = None
+    end_page: int | None = None
 
 
 @router.post("/process")
@@ -197,13 +201,24 @@ def process_scraped_book(req: ProcessRequest, background_tasks: BackgroundTasks)
     Images are expected at deed_images/book_{number}/ which is mounted
     into the container at /app/data/scraped/book_{number}/.
     """
+    import re
+
     from src.config import config
     from src.database import get_session
     from src.database.models import Book, ScanJob
 
+    start_page, end_page = req.start_page, req.end_page
+    if start_page is not None and start_page < 1:
+        raise HTTPException(status_code=422, detail="start_page must be 1 or greater.")
+    if end_page is not None and end_page < 1:
+        raise HTTPException(status_code=422, detail="end_page must be 1 or greater.")
+    if start_page is not None and end_page is not None and end_page < start_page:
+        raise HTTPException(
+            status_code=422, detail="end_page must be greater than or equal to start_page."
+        )
+
     image_dir = config.DATA_DIR / "scraped" / f"book_{req.book_number}"
     if not image_dir.exists():
-        from fastapi import HTTPException
         raise HTTPException(
             status_code=404,
             detail=(
@@ -215,8 +230,29 @@ def process_scraped_book(req: ProcessRequest, background_tasks: BackgroundTasks)
 
     images = sorted(image_dir.glob("*.png"))
     if not images:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"No PNG images found in {image_dir}")
+
+    # Count how many images actually fall inside the requested range so the
+    # user gets an immediate error instead of a background job that finds nothing.
+    if start_page is not None or end_page is not None:
+        _num_re = re.compile(r"(\d+)\D*$")
+        in_range = 0
+        for pos, img in enumerate(images, start=1):
+            m = _num_re.search(img.stem)
+            pn = int(m.group(1)) if m else pos
+            if (start_page is None or pn >= start_page) and (
+                end_page is None or pn <= end_page
+            ):
+                in_range += 1
+        if in_range == 0:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"None of the {len(images)} scraped image(s) for book "
+                    f"{req.book_number} fall within pages "
+                    f"{start_page or 'start'}–{end_page or 'end'}."
+                ),
+            )
 
     with get_session() as session:
         book = Book(
@@ -242,6 +278,8 @@ def process_scraped_book(req: ProcessRequest, background_tasks: BackgroundTasks)
         image_dir=image_dir,
         source_url=req.source_url,
         skip_ai=req.skip_ai,
+        start_page=start_page,
+        end_page=end_page,
     )
 
     return {"book_id": book_id, "job_id": job_id, "status": "queued"}
@@ -255,6 +293,8 @@ def _run_process_background(
     image_dir: Path,
     source_url: str | None,
     skip_ai: bool,
+    start_page: int | None = None,
+    end_page: int | None = None,
 ) -> None:
     """Run the detection pipeline on pre-scraped images."""
     import logging
@@ -278,6 +318,8 @@ def _run_process_background(
             skip_ai=skip_ai,
             book_id=book_id,
             job_id=job_id,
+            start_page=start_page,
+            end_page=end_page,
         )
     except Exception as exc:
         logger.error("Processing failed for book %s: %s", book_number, exc)
